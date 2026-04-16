@@ -7,3 +7,5 @@ tavily-python
 pytest
 FlagEmbedding
 chromadb
+sentence-transformers
+torch

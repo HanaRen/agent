@@ -4,7 +4,7 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError, ConfigDict
 import json
-from colorama import Fore
+import re
 
 
 class PlanModel(BaseModel):
@@ -35,14 +35,60 @@ def _from_tool_call(raw: dict) -> PlanModel:
 
 
 def parse_plan(raw: str | dict) -> PlanModel:
-    obj = json.loads(raw) if isinstance(raw, str) else raw
-    print(Fore.MAGENTA + "planner.parse: " + str(obj) + Fore.RESET)
+    def strip_code_block(text: str) -> str:
+        m = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.S)
+        return m.group(1) if m else text
+
+    if isinstance(raw, str):
+        raw = strip_code_block(raw).strip()
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            return PlanModel(action="final", output=raw)
+    else:
+        obj = raw
+
+    # unwrap common outer container
+    if isinstance(obj, dict) and "message" in obj:
+        obj = obj.get("message") or {}
+
+    # unwrap wrapper like {"action": "...", "output": "<json string>"} produced by some clients
+    if (
+        isinstance(obj, dict)
+        and isinstance(obj.get("output"), str)
+        and obj.get("tool_calls") is None
+        and obj.get("content") is None
+    ):
+        output_str = strip_code_block(obj["output"]).strip()
+        if output_str.startswith("{") and output_str.endswith("}"):
+            try:
+                obj = json.loads(output_str)
+            except Exception:
+                pass
+
     # function calling path
     if isinstance(obj, dict) and obj.get("tool_calls"):
         return _from_tool_call(obj)
 
-    try:
+    # content might contain a JSON plan string
+    if isinstance(obj, dict) and isinstance(obj.get("content"), str):
+        content = strip_code_block(obj["content"]).strip()
+        try:
+            return PlanModel.model_validate(json.loads(content))
+        except Exception:
+            return PlanModel(action="final", output=content)
+
+    # strict validation for dict-like plan objects
+    if isinstance(obj, dict):
+        # Normalization: some models return action as tool name (e.g. {"action":"retrieval", ...})
+        action = obj.get("action")
+        if isinstance(action, str) and action not in ("tool", "final"):
+            if action in ("retrieval", "search", "calculator") and "tool" not in obj:
+                normalized = dict(obj)
+                normalized["tool"] = action
+                normalized["action"] = "tool"
+                obj = normalized
+
         return PlanModel.model_validate(obj)
-    except Exception:
-        # treat as final plain text
-        return PlanModel(action="final", output=obj)
+
+    return PlanModel(action="final", output=str(obj))

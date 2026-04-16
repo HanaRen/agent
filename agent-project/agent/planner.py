@@ -38,7 +38,7 @@ class Planner:
 
     def _parse_response(self, response: dict) -> Plan:
         try:
-            plan_model = parse_plan(response["output"])
+            plan_model = parse_plan(response)
         except ValidationError as e:
             self.logger.error(
                 "planner.parse_error", extra={"errors": e.errors(), "raw": response}

@@ -23,7 +23,26 @@ class ChromaIndex:
             ids=ids, documents=documents, metadatas=metadatas or [{}] * len(documents)
         )
 
-    def query(self, query: str, top_k: int = 3):
+    def get_by_ids(self, ids: list[str]):
+        """
+        Fetch documents/metadatas by ids.
+        Returns list of {"id","text","metadata"} for found ids only, or {"error": "..."}.
+        """
+        try:
+            res = self.collection.get(ids=ids, include=["documents", "metadatas"])
+            out = []
+            got_ids = res.get("ids") or []
+            docs = res.get("documents") or []
+            metas = res.get("metadatas") or []
+            for i, doc_id in enumerate(got_ids):
+                doc = docs[i] if i < len(docs) else ""
+                meta = metas[i] if i < len(metas) else {}
+                out.append({"id": doc_id, "text": doc, "metadata": meta})
+            return out
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc)}
+
+    def query(self, query: str, top_k: int = 10):
         res = self.collection.query(
             query_texts=[query],
             n_results=top_k,

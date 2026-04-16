@@ -1,16 +1,12 @@
 """LLM client using local Ollama with simple tool-call heuristics."""
 
-from opentelemetry.metrics import obj
 import json
 import re
-from typing import List
 
 import ollama
 import requests
 
-from llm.schemas import Message
 from config import Settings
-from colorama import Fore
 
 tools = [
     {
@@ -132,6 +128,7 @@ class LLMClient:
     ) -> dict:
         if not use_function_calling:
             return self.heuristic(prompt, trace_id)
+
         resp = ollama.chat(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
@@ -146,8 +143,20 @@ class LLMClient:
         self.logger.info(
             "planner.response", extra={"trace_id": trace_id, "response": content_text}
         )
-        obj = json.loads(content_text)
-        return {"action": obj.get("action"), "output": content_text}
+        # Return the parsed plan dict directly; parser will validate/normalize.
+        return json.loads(content_text)
+
+    def chat_plain(self, prompt: str, trace_id: str) -> str:
+        """
+        Plain completion without heuristics/tools; used for summarization and final answer generation.
+        """
+        resp = ollama.chat(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+            options={"temperature": 0, "seed": 42},
+        )
+        return resp["message"]["content"]
 
     def chatWithAPI(self, prompt: str, trace_id: str) -> dict:
         payload = {
